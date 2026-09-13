@@ -32,8 +32,9 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * `nginx -T` confirmed that the running NGINX process is listening on port `80`.
 * Failed attempt and what changed your thinking: The initial request to `http://localhost:8080/` failed even though the NGINX container was running. This showed that container state alone did not prove the service was reachable and led to checking the host-to-container port mapping.
 * Root cause: Docker forwards public traffic from host port `8080` to NGINX container port `81`, but NGINX listens on container port `80`.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed the NGINX Compose port mapping from container port `81` to `80`, matching the active NGINX `listen 80` configuration.
+* Retest evidence: After recreating NGINX, `docker inspect nginx --format '{{json .HostConfig.PortBindings}}' | jq` showed host `127.0.0.1:8080` mapped to container port `80`. A subsequent `curl -i http://localhost:8080/` reached NGINX and returned `502 Bad Gateway` instead of a connection reset, proving the public port mapping was fixed and exposing the next upstream issue.
+
 * Related commit: Pending.
 * Remaining uncertainty: After correcting the NGINX port mapping, upstream application connectivity may still fail and must be tested separately.
 ## Entry 2 / 2026-09-13
@@ -55,8 +56,9 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * `app/server.py` defines the liveness endpoint as `/health`.
 * Failed attempt and what changed your thinking: Initially the containers appeared to start successfully, but checking their health state showed repeated failures. Inspecting the actual health-check output revealed that the failure was an HTTP 404 rather than a process crash.
 * Root cause: The Docker health check calls `/healthz`, while the Flask application exposes `/health`.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed the application health check in `docker-compose.yml` from `/healthz` to the Flask liveness endpoint `/health`.
+* Retest evidence: After recreating `app-01` and `app-02`, `docker compose ps` reported both application containers as `healthy`. A request to `http://localhost:8080/health` returned HTTP `200 OK` with `"status":"alive"`.
+
 * Related commit: Pending.
 * Remaining uncertainty: Correcting the health-check path will prove liveness, but it will not by itself prove that NGINX can reach the Flask containers or that PostgreSQL and Redis readiness works.
 ## Entry 3 / 2026-09-13
@@ -75,8 +77,9 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * NGINX successfully resolved `app-01` to a Docker network IP address but received `Connection refused`.
 * Failed attempt and what changed your thinking: The failed request from NGINX showed that service-name resolution was working, so the problem was not Docker DNS. The refusal suggested the application was not listening on the interface reachable from other containers.
 * Root cause: Compose forces Flask to bind to `127.0.0.1`, making it reachable only from inside its own container. NGINX therefore cannot connect to the Flask service over the Docker network.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed `APP_HOST` in `docker-compose.yml` from `127.0.0.1` to `0.0.0.0` so Flask listens on the container network interface and is reachable from NGINX.
+* Retest evidence: After recreating both application containers, their logs showed `Running on all addresses (0.0.0.0)` and container network addresses such as `172.19.0.x:8080`. A subsequent request through NGINX reached the Flask backend successfully and returned HTTP `200 OK`.
+
 * Related commit: Pending.
 * Remaining uncertainty: After changing the Flask bind address, NGINX upstream port configuration must still be verified separately.
 ## Entry 4 / 2026-09-14
@@ -98,8 +101,9 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * `redis:6379` returned `CONNECTED`.
 * Failed attempt and what changed your thinking: The configured ports failed even though both PostgreSQL and Redis containers were running and healthy. Testing the standard internal service ports showed that Docker networking worked and that the problem was specifically the configured ports.
 * Root cause: The application configuration uses PostgreSQL port `5433` instead of `5432`, and Redis port `6380` instead of `6379`.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Updated `config/app.env` so PostgreSQL uses `postgres:5432` and Redis uses `redis:6379`, matching the actual internal service ports.
+* Retest evidence: After recreating the application containers, `/ready` changed from reporting both dependencies unavailable to reporting PostgreSQL as `ready` while Redis remained `unavailable`. After correcting Redis as well, `/ready` returned HTTP `200 OK` with both `"postgres":"ready"` and `"redis":"ready"`.
+
 * Related commit: Pending.
 * Remaining uncertainty: PostgreSQL authentication may still fail after correcting the port because the configured application password must be verified separately.
 ## Entry 5 / 2026-09-14
@@ -116,8 +120,9 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * Connecting with the corrected port returned `FATAL: password authentication failed for user "barq_app"`.
 * Failed attempt and what changed your thinking: Correcting only the PostgreSQL port in the test changed the failure from `Connection refused` to an authentication failure. This showed that the network path was now correct and exposed a second independent configuration problem.
 * Root cause: The password in the application's `DATABASE_URL` does not match the password configured for the PostgreSQL container.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Updated the PostgreSQL password in `config/app.env` so the application's `DATABASE_URL` matches the password configured for the PostgreSQL service.
+* Retest evidence: After recreating the application containers with the corrected PostgreSQL port and password, `/ready` reported `"postgres":"ready"`. After the Redis port was corrected as well, `/ready` returned HTTP `200 OK` with overall `"status":"ready"`.
+
 * Related commit: Pending.
 * Remaining uncertainty: After correcting the port and password, the application's `/ready` endpoint must still be tested to confirm real PostgreSQL and Redis operations succeed.
 ## Entry 6 / 2026-09-14
@@ -132,8 +137,9 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * The running `app-02` container returned `app-01`.
 * Failed attempt and what changed your thinking: No failed attempt was needed for this issue. Inspecting the live container environment directly confirmed the configuration mismatch.
 * Root cause: `app-02` is configured with `INSTANCE_ID: "app-01"` instead of its own distinct identity.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed `app-02` in `docker-compose.yml` from `INSTANCE_ID: "app-01"` to `INSTANCE_ID: "app-02"`.
+* Retest evidence: After recreating only `app-02`, `docker exec app-02 printenv INSTANCE_ID` returned `app-02`. Repeated requests to `http://localhost:8080/instance` then returned responses from both `app-01` and `app-02`, proving that both backends serve traffic with distinct identities through NGINX.
+
 * Related commit: Pending.
 * Remaining uncertainty: After correcting the identity value, `/instance` still needs to be tested through NGINX repeatedly to prove both backends are serving traffic.
 ## Entry 7 / 2026-09-14
@@ -219,7 +225,8 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * The active NGINX configuration contains `server app-02:8080`.
 * Failed attempt and what changed your thinking: No additional failed attempt was required. Inspecting the active NGINX configuration directly confirmed that one upstream uses a different port from the Flask application port.
 * Root cause: NGINX points `app-01` to port `8081` even though the Flask application listens on port `8080`.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed the `app-01` NGINX upstream from port `8081` to port `8080` so both Flask backends use their actual application port.
+* Retest evidence: `nginx -t` reported the configuration syntax as valid. After reloading NGINX, the upstream error changed from `app-01:8081` to `app-01:8080`, proving the new port was active. After the Flask bind-address fix was also applied, `curl -i http://localhost:8080/` returned HTTP `200 OK`.
+
 * Related commit: Pending.
 * Remaining uncertainty: After correcting the upstream port and Flask bind address, repeated requests through NGINX must prove that both backends serve traffic.
