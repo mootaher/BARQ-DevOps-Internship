@@ -2,8 +2,8 @@
 
 - Repository URL: https://github.com/mootaher/BARQ-DevOps-Internship
 - Final implementation commit shown in video: `75a6fba` — `feat: complete live challenge architecture`
-- Matching CI run: PENDING final documentation push
-- Continuous 12-18 minute video URL: PENDING video upload
+- Matching CI run for final executable configuration (`335a757`): https://github.com/mootaher/BARQ-DevOps-Internship/actions/runs/34811391417
+- Continuous 12-18 minute video URL: https://drive.google.com/file/d/1DBgUUJX8u3Yp2OorVdeOo3GXIEBFVDJw/view
 - Challenge receipt ID: `ac9dcb02bb4c4b058fb63f2deaf8f5c8`
 - Starting video commit: `edda7db` — `docs: disclose AI-assisted work and verification`
 - Post-video finalization commits: documentation/diagram updates plus CI port alignment to `8090`; no runtime architecture change after `75a6fba`
@@ -41,5 +41,4 @@ architecture diagram, and implementation commit describe:
 - persistent PostgreSQL and Redis storage
 - Docker healthchecks and readiness behavior
 
-The exact final GitHub Actions run URL and continuous video URL are added after
-the final documentation push and video upload.
+The links above point to the verified green CI run for the final executable configuration and the submitted continuous video recording.
