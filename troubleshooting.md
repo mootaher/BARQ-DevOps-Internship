@@ -275,3 +275,23 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Retest evidence: After rebuilding both application images and recreating `app-01` and `app-02`, `whoami` returned `app` in both containers. A subsequent request to `/ready` through NGINX returned HTTP `200 OK` with PostgreSQL and Redis both reported as `ready`, confirming that the application still functions correctly as the non-root user.
 * Related commit: Pending.
 * Remaining uncertainty: Non-root execution is confirmed for both application containers. Additional container hardening and resource/restart settings will be reviewed separately.
+## Entry 14 / 2026-09-14
+
+* Symptom: Application and infrastructure containers had no automatic restart protection, application startup was not explicitly gated on dependency health, NGINX startup was not gated on backend health, and the application containers had no CPU or memory limits.
+* Hypothesis: A dependency or application failure could leave part of the stack unavailable until manual intervention, and the Flask containers could consume unbounded host resources.
+* Command or test:
+
+  * `grep -nE 'mem_limit|cpus' docker-compose.yml`
+  * `docker inspect nginx postgres redis --format '{{.Name}} -> restart={{.HostConfig.RestartPolicy.Name}}'`
+  * `docker stats --no-stream nginx app-01 app-02 postgres redis`
+* Actual output:
+
+  * No `mem_limit` or `cpus` settings were present initially.
+  * NGINX, PostgreSQL, and Redis all reported `restart=no`.
+  * Runtime resource usage showed the Flask containers using approximately 38 MiB each while having no configured application-level limit before this change.
+* Failed attempt and what changed your thinking: No failed implementation attempt was required. Resource usage was inspected before extending limits to infrastructure services. The measurement was only an idle snapshot, so it was not sufficient evidence for safely imposing arbitrary hard limits on PostgreSQL, Redis, or NGINX.
+* Root cause: The Compose configuration lacked explicit production-style resilience controls for restart behavior, health-gated startup ordering, and application resource consumption.
+* Fix: Added health-based `depends_on` conditions so the Flask applications wait for healthy PostgreSQL and Redis services and NGINX waits for healthy Flask backends. Changed long-running services to `restart: unless-stopped`. Added a 256 MiB memory limit and 0.50 CPU limit to each Flask application through the shared `x-app` definition. Infrastructure services were intentionally left without arbitrary resource caps because an idle usage snapshot is insufficient for determining safe database, cache, or proxy limits.
+* Retest evidence: `docker compose config -q` completed successfully. Recreated application containers reported healthy dependencies before starting. `docker inspect` confirmed each Flask container has `memory=268435456` and `nano_cpus=500000000`. NGINX, PostgreSQL, and Redis each reported `restart=unless-stopped` after recreation. `/ready` returned HTTP `200 OK` with both dependencies ready. PostgreSQL record ID `3` remained present after recreation, and the Redis counter continued from `2` to `3`, confirming persistence remained intact. Final `docker compose ps` showed both Flask containers healthy, PostgreSQL and Redis healthy, and only NGINX publishing `127.0.0.1:8080->80/tcp`.
+* Related commit: Pending.
+* Remaining uncertainty: The selected Flask limits are appropriate for the assessment workload but are not a substitute for production load testing. Infrastructure resource limits should be based on measured workload requirements rather than idle usage alone.
