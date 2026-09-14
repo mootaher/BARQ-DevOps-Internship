@@ -233,4 +233,45 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Retest evidence: `nginx -t` reported the configuration syntax as valid. After reloading NGINX, the upstream error changed from `app-01:8081` to `app-01:8080`, proving the new port was active. After the Flask bind-address fix was also applied, `curl -i http://localhost:8080/` returned HTTP `200 OK`.
 
 * Related commit: Pending.
-* Remaining uncertainty: After correcting the upstream port and Flask bind address, repeated requests through NGINX must prove that both backends serve traffic.
+* Remaining uncertainty: Both backends were later confirmed serving traffic through NGINX with distinct `/instance` responses. Full load-balancing behavior will be rechecked during final validation.
+## Entry 12 / 2026-09-14
+
+* Symptom: Application database credentials are stored in a tracked environment file, and the Dockerfile copies that file directly into the application image.
+* Hypothesis: Runtime secrets may be committed to the repository and embedded inside built Docker images.
+* Command or test:
+
+  * `cat Dockerfile`
+  * `git ls-files config/app.env .env.example`
+  * `cat config/app.env`
+  * `cat .dockerignore`
+* Actual output:
+
+  * The Dockerfile contained `COPY config/app.env /srv/app.env`.
+  * `config/app.env` was tracked by Git.
+  * `config/app.env` contained the application's PostgreSQL connection string including its password.
+  * `.dockerignore` already excluded `.env` and `.env.*`, making a root `.env` suitable for local runtime secrets.
+* Failed attempt and what changed your thinking: The existing `.gitignore` protected root `.env` files but did not protect `config/app.env`, so simply relying on the existing ignore rules would not prevent the tracked credential from remaining in the repository.
+* Root cause: Runtime secrets were stored in the tracked `config/app.env` file and that same file was copied into the Docker image during build.
+* Fix: Moved runtime secret values into a root `.env` file that is ignored by Git and excluded from the Docker build context. Updated Compose to inject only the required variables, replaced the hardcoded PostgreSQL password with `${POSTGRES_PASSWORD}`, expanded `.env.example` using safe placeholder values, removed `config/app.env` from Git, added it to `.gitignore`, and removed `COPY config/app.env /srv/app.env` from the Dockerfile.
+* Retest evidence: `git status --short --ignored .env` returned `!! .env`, confirming the private runtime file is ignored. After rebuilding and recreating the application containers, `/srv/app.env` returned `NOT FOUND` inside `app-01`. a repository search for the former database credential returned no tracked match, confirming the credential is absent from the current tracked repository state.
+* Related commit: Pending.
+* Remaining uncertainty: The supplied credential remains visible in earlier baseline Git history. That history is intentionally preserved rather than rewritten so the original assessment state and subsequent remediation remain auditable.
+## Entry 13 / 2026-09-14
+
+* Symptom: The Dockerfile creates a dedicated `app` user but explicitly switches the final runtime user back to `root`.
+* Hypothesis: The Flask application containers may be running with unnecessary root privileges.
+* Command or test:
+
+  * `cat Dockerfile`
+  * `docker exec app-01 whoami`
+  * `docker exec app-02 whoami`
+* Actual output:
+
+  * The original Dockerfile contained `USER root` after creating the non-root `app` user.
+  * After rebuilding and recreating the application containers with the fix, both `docker exec app-01 whoami` and `docker exec app-02 whoami` returned `app`.
+* Failed attempt and what changed your thinking: No failed attempt was required. The Dockerfile directly showed that the existing non-root account was not being used for the final runtime process.
+* Root cause: The Dockerfile explicitly selected `root` as the final runtime user even though the application files were already owned by the dedicated `app` user.
+* Fix: Replaced `USER root` with `USER app` so the Flask application runs with UID/GID `10001` instead of root privileges.
+* Retest evidence: After rebuilding both application images and recreating `app-01` and `app-02`, `whoami` returned `app` in both containers. A subsequent request to `/ready` through NGINX returned HTTP `200 OK` with PostgreSQL and Redis both reported as `ready`, confirming that the application still functions correctly as the non-root user.
+* Related commit: Pending.
+* Remaining uncertainty: Non-root execution is confirmed for both application containers. Additional container hardening and resource/restart settings will be reviewed separately.

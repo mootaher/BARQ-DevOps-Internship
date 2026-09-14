@@ -3,11 +3,12 @@ x-app: &app
   build: .
   init: true
   restart: "no"
-  env_file: ./config/app.env
   environment: &app-env
     APP_HOST: "0.0.0.0"
     APP_PORT: "8080"
     APP_MESSAGE: "Welcome to BARQ Systems"
+    DATABASE_URL: "${DATABASE_URL}"
+    REDIS_URL: "${REDIS_URL}"
   healthcheck:
     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
     interval: 5s
@@ -22,7 +23,7 @@ services:
     environment:
       POSTGRES_USER: barq_app
       POSTGRES_DB: barq_tasks
-      POSTGRES_PASSWORD: BarqLabOnly_7qN2vK8c
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
