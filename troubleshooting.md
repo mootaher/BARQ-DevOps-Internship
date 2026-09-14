@@ -156,10 +156,11 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * `/var/lib/postgresql/data` is configured as a `tmpfs`.
 * Failed attempt and what changed your thinking: No failed attempt was required. Inspecting the live container mounts showed that the named volume exists, but it protects the backup directory instead of PostgreSQL's active data directory.
 * Root cause: PostgreSQL's live data directory `/var/lib/postgresql/data` is stored on temporary `tmpfs` storage, while the persistent named volume is mounted to `/var/lib/postgresql/backup`.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed the PostgreSQL named volume mount from `/var/lib/postgresql/backup` to the actual PostgreSQL data directory `/var/lib/postgresql/data` and removed the `tmpfs` mount from `/var/lib/postgresql/data`.
+* Retest evidence: `docker inspect postgres` showed the named volume `barq-assessment_postgres-data` mounted read-write at `/var/lib/postgresql/data`. A test record titled `postgres-persistence-test-2026-09-14` was created through `POST /records` and returned HTTP `201 Created` with record ID `3`. After recreating the PostgreSQL container with `docker compose up -d --force-recreate postgres`, PostgreSQL returned to healthy state and `GET /records` still returned the same record, proving that the database persisted across container recreation.
+
 * Related commit: Pending.
-* Remaining uncertainty: After moving the named volume to the live PostgreSQL data directory, record persistence must be proven by creating a record and recreating the PostgreSQL and app containers.
+* Remaining uncertainty: Basic persistence across PostgreSQL container recreation is confirmed. Backup and restore behavior will be validated separately in the dedicated persistence test.
 ## Entry 8 / 2026-09-14
 
 * Symptom: Redis-backed state is expected to support persistent application behavior, but the current Redis configuration does not appear to preserve data across container recreation.
@@ -173,10 +174,11 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * `appendonly` returned `no`.
 * Failed attempt and what changed your thinking: No failed attempt was required. Inspecting the live Redis configuration directly confirmed that both RDB snapshot persistence and AOF persistence are disabled.
 * Root cause: Redis is started with persistence disabled, so Redis-backed counter state may be lost when the container is recreated.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Enabled Redis AOF persistence with `--appendonly yes`, added a named volume `redis-data`, and mounted it at Redis's `/data` directory.
+* Retest evidence: `docker inspect redis` showed the named volume `barq-assessment_redis-data` mounted read-write at `/data`, and `redis-cli CONFIG GET appendonly` returned `yes`. A request to `/counter` returned `1`; after recreating the Redis container with `docker compose up -d --force-recreate redis`, Redis returned to healthy state and the next `/counter` request returned `2`, proving that the previous counter value persisted across container recreation.
+
 * Related commit: Pending.
-* Remaining uncertainty: After persistence is enabled, the `/counter` endpoint should be tested before and after Redis container recreation to verify the intended behavior.
+* Remaining uncertainty: Basic Redis persistence across container recreation is confirmed. Broader application validation will be handled in the final validation phase.
 ## Entry 9 / 2026-09-14
 
 * Symptom: PostgreSQL and Redis should be internal-only services, but the runtime configuration exposes both services to host ports.
