@@ -193,10 +193,11 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * Redis container port `6379` is bound to host `127.0.0.1:16379`.
 * Failed attempt and what changed your thinking: `docker compose ps` did not clearly display the host mappings, so the runtime configuration was inspected directly with `docker inspect`.
 * Root cause: The Compose configuration publishes PostgreSQL and Redis ports to the host instead of keeping those services accessible only through the Docker backend network.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Removed the PostgreSQL and Redis `ports` mappings from `docker-compose.yml`, leaving only NGINX with a published host port.
+* Retest evidence: After recreating PostgreSQL, Redis, and NGINX, `docker compose ps` showed NGINX published on `127.0.0.1:8080->80/tcp`, while PostgreSQL showed only `5432/tcp` and Redis only `6379/tcp`, confirming that the database and cache were no longer exposed on host ports.
 * Related commit: Pending.
-* Remaining uncertainty: Network membership still needs to be checked to confirm whether NGINX also has direct access to PostgreSQL and Redis.
+* Remaining uncertainty: Host-port exposure is resolved. Network-level isolation between NGINX and the backend services is verified separately in Entry 10.
+
 ## Entry 10 / 2026-09-14
 
 * Symptom: NGINX should be isolated from PostgreSQL and Redis, but the running container appears to share the backend network.
@@ -210,10 +211,11 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
   * NGINX is also attached to `barq-assessment_backend`.
 * Failed attempt and what changed your thinking: No failed attempt was required. Inspecting the running container network membership directly confirmed that NGINX has backend-network access.
 * Root cause: The Compose configuration attaches NGINX to both `frontend` and `backend`, allowing direct network access to PostgreSQL and Redis.
-* Fix: Not applied yet; investigation phase.
-* Retest evidence: Pending after fix.
+* Fix: Changed the NGINX service network configuration in `docker-compose.yml` from `[frontend, backend]` to `[frontend]`, preventing NGINX from directly joining the backend network.
+* Retest evidence: After recreating NGINX, `docker inspect nginx` showed only `barq-assessment_frontend` and no backend network. From inside the NGINX container, `getent hosts postgres` failed and printed `postgres not reachable from nginx`, confirming that NGINX could no longer resolve PostgreSQL directly. A request to `/ready` through NGINX still returned HTTP `200 OK` with both PostgreSQL and Redis reported as `ready`, proving that the Flask application containers still bridge the frontend and backend networks correctly.
 * Related commit: Pending.
-* Remaining uncertainty: After removing NGINX from the backend network, application containers must still be verified on both networks so they can communicate with NGINX, PostgreSQL, and Redis as intended.
+* Remaining uncertainty: Network isolation is confirmed. The full topology will be rechecked during final validation.
+
 ## Entry 11 / 2026-09-14
 
 * Symptom: NGINX is configured with different upstream ports for the two Flask backends even though both applications run on the same internal port.
