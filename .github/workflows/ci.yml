@@ -16,7 +16,7 @@ jobs:
       POSTGRES_PASSWORD: ci-password
       DATABASE_URL: postgresql://barq_app:ci-password@postgres:5432/barq_tasks
       REDIS_URL: redis://redis:6379/0
-      PUBLIC_PORT: 8080
+      PUBLIC_PORT: 8090
 
     steps:
       - name: Checkout repository
@@ -42,7 +42,7 @@ jobs:
           set -euo pipefail
 
           for attempt in $(seq 1 45); do
-            if curl --fail --silent http://127.0.0.1:8080/ready >/dev/null; then
+            if curl --fail --silent http://127.0.0.1:8090/ready >/dev/null; then
               echo "Stack is ready"
               exit 0
             fi

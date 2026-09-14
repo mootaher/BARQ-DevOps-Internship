@@ -280,3 +280,28 @@
 * Retest evidence: `docker compose config -q` completed successfully. Recreated application containers reported healthy dependencies before starting. `docker inspect` confirmed each Flask container has `memory=268435456` and `nano_cpus=500000000`. NGINX, PostgreSQL, and Redis each reported `restart=unless-stopped` after recreation. `/ready` returned HTTP `200 OK` with both dependencies ready. PostgreSQL record ID `3` remained present after recreation, and the Redis counter continued from `2` to `3`, confirming persistence remained intact. Final `docker compose ps` showed both Flask containers healthy, PostgreSQL and Redis healthy, and only NGINX publishing `127.0.0.1:8080->80/tcp`.
 * Related commit: `2876b59 fix: improve container reliability controls`
 * Remaining uncertainty: The selected Flask limits are appropriate for the assessment workload but are not a substitute for production load testing. Infrastructure resource limits should be based on measured workload requirements rather than idle usage alone.
+
+## Entry 15 / 2026-09-14
+
+* Symptom: The first recorded invocation of `./video_challenge.sh` stopped during preflight with `Repair the environment first: every service must be healthy and unpaused`.
+* Hypothesis: One service was running but did not report Docker health, causing the challenge preflight to reject the environment before applying any runtime fault.
+* Command or test:
+
+  * `docker compose ps -a`
+  * `docker inspect nginx --format '{{json .State.Health}}'`
+  * inspection of `scripts/video_challenge.py`
+  * `ls -la .assessment`
+  * `docker exec nginx sh -c 'command -v wget && wget -q -O- http://127.0.0.1/health'`
+* Actual output:
+
+  * Application, PostgreSQL, and Redis services were healthy.
+  * NGINX was running but had no Docker health status because no healthcheck was configured.
+  * The challenge script's preflight requires every service to report `healthy`.
+  * The script performs preflight before creating the one-run lock or challenge receipt, and `.assessment` remained empty after the failed preflight.
+  * `wget` existed inside the NGINX image and successfully reached the proxied `/health` endpoint.
+* Failed attempt and what changed your thinking: The initial assumption was that the challenge itself had already injected a fault. Inspecting the challenge script showed that the failure occurred before lock creation and before `apply_challenge()`, so the runtime challenge had not yet been consumed or applied.
+* Root cause: NGINX lacked a Compose healthcheck, while the supplied challenge preflight required all services to expose Docker health and be healthy.
+* Fix: Added an NGINX healthcheck that requests `http://127.0.0.1/health` with `wget`, then recreated only NGINX. No full-stack reset was performed.
+* Retest evidence: `docker compose ps` showed NGINX and all other services healthy. The next challenge invocation successfully returned `Challenge applied`. The resulting runtime fault was then diagnosed as `app-02` being disconnected from the frontend network, repaired with `docker network connect`, and verified through repeated `/instance` requests. The final architecture was expanded to three healthy application instances on public port 8090.
+* Related commit: `75a6fba feat: complete live challenge architecture`
+* Remaining uncertainty: The NGINX healthcheck validates the proxy health path and is appropriate for this assessment, but production monitoring should also include external synthetic checks and alerting.
