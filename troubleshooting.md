@@ -1,20 +1,5 @@
 # Troubleshooting journal
 
-Keep chronological entries. Copy this block for each meaningful investigation.
-
-## Entry / date / time
-- Symptom:
-- Hypothesis:
-- Command or test:
-- Actual output:
-- Failed attempt and what changed your thinking:
-- Root cause:
-- Fix:
-- Retest evidence:
-- Related commit:
-- Remaining uncertainty:
-
-Do not fabricate a failed attempt just to fill the template. Record actual attempts.
 ## Entry 1 / 2026-09-13
 
 * Symptom: `curl -i http://localhost:8080/` failed with `Recv failure: Connection reset by peer`.
@@ -35,7 +20,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Changed the NGINX Compose port mapping from container port `81` to `80`, matching the active NGINX `listen 80` configuration.
 * Retest evidence: After recreating NGINX, `docker inspect nginx --format '{{json .HostConfig.PortBindings}}' | jq` showed host `127.0.0.1:8080` mapped to container port `80`. A subsequent `curl -i http://localhost:8080/` reached NGINX and returned `502 Bad Gateway` instead of a connection reset, proving the public port mapping was fixed and exposing the next upstream issue.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: After correcting the NGINX port mapping, upstream application connectivity may still fail and must be tested separately.
 ## Entry 2 / 2026-09-13
 
@@ -59,7 +44,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Changed the application health check in `docker-compose.yml` from `/healthz` to the Flask liveness endpoint `/health`.
 * Retest evidence: After recreating `app-01` and `app-02`, `docker compose ps` reported both application containers as `healthy`. A request to `http://localhost:8080/health` returned HTTP `200 OK` with `"status":"alive"`.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: Correcting the health-check path will prove liveness, but it will not by itself prove that NGINX can reach the Flask containers or that PostgreSQL and Redis readiness works.
 ## Entry 3 / 2026-09-13
 
@@ -80,7 +65,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Changed `APP_HOST` in `docker-compose.yml` from `127.0.0.1` to `0.0.0.0` so Flask listens on the container network interface and is reachable from NGINX.
 * Retest evidence: After recreating both application containers, their logs showed `Running on all addresses (0.0.0.0)` and container network addresses such as `172.19.0.x:8080`. A subsequent request through NGINX reached the Flask backend successfully and returned HTTP `200 OK`.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: After changing the Flask bind address, NGINX upstream port configuration must still be verified separately.
 ## Entry 4 / 2026-09-14
 
@@ -104,7 +89,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Updated `config/app.env` so PostgreSQL uses `postgres:5432` and Redis uses `redis:6379`, matching the actual internal service ports.
 * Retest evidence: After recreating the application containers, `/ready` changed from reporting both dependencies unavailable to reporting PostgreSQL as `ready` while Redis remained `unavailable`. After correcting Redis as well, `/ready` returned HTTP `200 OK` with both `"postgres":"ready"` and `"redis":"ready"`.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: PostgreSQL authentication may still fail after correcting the port because the configured application password must be verified separately.
 ## Entry 5 / 2026-09-14
 
@@ -123,7 +108,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Updated the PostgreSQL password in `config/app.env` so the application's `DATABASE_URL` matches the password configured for the PostgreSQL service.
 * Retest evidence: After recreating the application containers with the corrected PostgreSQL port and password, `/ready` reported `"postgres":"ready"`. After the Redis port was corrected as well, `/ready` returned HTTP `200 OK` with overall `"status":"ready"`.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: After correcting the port and password, the application's `/ready` endpoint must still be tested to confirm real PostgreSQL and Redis operations succeed.
 ## Entry 6 / 2026-09-14
 
@@ -140,7 +125,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Changed `app-02` in `docker-compose.yml` from `INSTANCE_ID: "app-01"` to `INSTANCE_ID: "app-02"`.
 * Retest evidence: After recreating only `app-02`, `docker exec app-02 printenv INSTANCE_ID` returned `app-02`. Repeated requests to `http://localhost:8080/instance` then returned responses from both `app-01` and `app-02`, proving that both backends serve traffic with distinct identities through NGINX.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: After correcting the identity value, `/instance` still needs to be tested through NGINX repeatedly to prove both backends are serving traffic.
 ## Entry 7 / 2026-09-14
 
@@ -159,7 +144,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Changed the PostgreSQL named volume mount from `/var/lib/postgresql/backup` to the actual PostgreSQL data directory `/var/lib/postgresql/data` and removed the `tmpfs` mount from `/var/lib/postgresql/data`.
 * Retest evidence: `docker inspect postgres` showed the named volume `barq-assessment_postgres-data` mounted read-write at `/var/lib/postgresql/data`. A test record titled `postgres-persistence-test-2026-09-14` was created through `POST /records` and returned HTTP `201 Created` with record ID `3`. After recreating the PostgreSQL container with `docker compose up -d --force-recreate postgres`, PostgreSQL returned to healthy state and `GET /records` still returned the same record, proving that the database persisted across container recreation.
 
-* Related commit: Pending.
+* Related commit: `8df8cc8 fix: persist postgres and redis data`
 * Remaining uncertainty: Basic persistence across PostgreSQL container recreation is confirmed. Backup and restore behavior will be validated separately in the dedicated persistence test.
 ## Entry 8 / 2026-09-14
 
@@ -177,7 +162,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Enabled Redis AOF persistence with `--appendonly yes`, added a named volume `redis-data`, and mounted it at Redis's `/data` directory.
 * Retest evidence: `docker inspect redis` showed the named volume `barq-assessment_redis-data` mounted read-write at `/data`, and `redis-cli CONFIG GET appendonly` returned `yes`. A request to `/counter` returned `1`; after recreating the Redis container with `docker compose up -d --force-recreate redis`, Redis returned to healthy state and the next `/counter` request returned `2`, proving that the previous counter value persisted across container recreation.
 
-* Related commit: Pending.
+* Related commit: `8df8cc8 fix: persist postgres and redis data`
 * Remaining uncertainty: Basic Redis persistence across container recreation is confirmed. Broader application validation will be handled in the final validation phase.
 ## Entry 9 / 2026-09-14
 
@@ -195,7 +180,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Root cause: The Compose configuration publishes PostgreSQL and Redis ports to the host instead of keeping those services accessible only through the Docker backend network.
 * Fix: Removed the PostgreSQL and Redis `ports` mappings from `docker-compose.yml`, leaving only NGINX with a published host port.
 * Retest evidence: After recreating PostgreSQL, Redis, and NGINX, `docker compose ps` showed NGINX published on `127.0.0.1:8080->80/tcp`, while PostgreSQL showed only `5432/tcp` and Redis only `6379/tcp`, confirming that the database and cache were no longer exposed on host ports.
-* Related commit: Pending.
+* Related commit: `494b662 fix: isolate backend services from host and nginx`
 * Remaining uncertainty: Host-port exposure is resolved. Network-level isolation between NGINX and the backend services is verified separately in Entry 10.
 
 ## Entry 10 / 2026-09-14
@@ -213,7 +198,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Root cause: The Compose configuration attaches NGINX to both `frontend` and `backend`, allowing direct network access to PostgreSQL and Redis.
 * Fix: Changed the NGINX service network configuration in `docker-compose.yml` from `[frontend, backend]` to `[frontend]`, preventing NGINX from directly joining the backend network.
 * Retest evidence: After recreating NGINX, `docker inspect nginx` showed only `barq-assessment_frontend` and no backend network. From inside the NGINX container, `getent hosts postgres` failed and printed `postgres not reachable from nginx`, confirming that NGINX could no longer resolve PostgreSQL directly. A request to `/ready` through NGINX still returned HTTP `200 OK` with both PostgreSQL and Redis reported as `ready`, proving that the Flask application containers still bridge the frontend and backend networks correctly.
-* Related commit: Pending.
+* Related commit: `494b662 fix: isolate backend services from host and nginx`
 * Remaining uncertainty: Network isolation is confirmed. The full topology will be rechecked during final validation.
 
 ## Entry 11 / 2026-09-14
@@ -232,7 +217,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Fix: Changed the `app-01` NGINX upstream from port `8081` to port `8080` so both Flask backends use their actual application port.
 * Retest evidence: `nginx -t` reported the configuration syntax as valid. After reloading NGINX, the upstream error changed from `app-01:8081` to `app-01:8080`, proving the new port was active. After the Flask bind-address fix was also applied, `curl -i http://localhost:8080/` returned HTTP `200 OK`.
 
-* Related commit: Pending.
+* Related commit: `10491c7 fix: restore app routing health and dependency readiness`
 * Remaining uncertainty: Both backends were later confirmed serving traffic through NGINX with distinct `/instance` responses. Full load-balancing behavior will be rechecked during final validation.
 ## Entry 12 / 2026-09-14
 
@@ -254,7 +239,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Root cause: Runtime secrets were stored in the tracked `config/app.env` file and that same file was copied into the Docker image during build.
 * Fix: Moved runtime secret values into a root `.env` file that is ignored by Git and excluded from the Docker build context. Updated Compose to inject only the required variables, replaced the hardcoded PostgreSQL password with `${POSTGRES_PASSWORD}`, expanded `.env.example` using safe placeholder values, removed `config/app.env` from Git, added it to `.gitignore`, and removed `COPY config/app.env /srv/app.env` from the Dockerfile.
 * Retest evidence: `git status --short --ignored .env` returned `!! .env`, confirming the private runtime file is ignored. After rebuilding and recreating the application containers, `/srv/app.env` returned `NOT FOUND` inside `app-01`. a repository search for the former database credential returned no tracked match, confirming the credential is absent from the current tracked repository state.
-* Related commit: Pending.
+* Related commit: `12aaffe fix: harden secrets and container runtime`
 * Remaining uncertainty: The supplied credential remains visible in earlier baseline Git history. That history is intentionally preserved rather than rewritten so the original assessment state and subsequent remediation remain auditable.
 ## Entry 13 / 2026-09-14
 
@@ -273,7 +258,7 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Root cause: The Dockerfile explicitly selected `root` as the final runtime user even though the application files were already owned by the dedicated `app` user.
 * Fix: Replaced `USER root` with `USER app` so the Flask application runs with UID/GID `10001` instead of root privileges.
 * Retest evidence: After rebuilding both application images and recreating `app-01` and `app-02`, `whoami` returned `app` in both containers. A subsequent request to `/ready` through NGINX returned HTTP `200 OK` with PostgreSQL and Redis both reported as `ready`, confirming that the application still functions correctly as the non-root user.
-* Related commit: Pending.
+* Related commit: `12aaffe fix: harden secrets and container runtime`
 * Remaining uncertainty: Non-root execution is confirmed for both application containers. Additional container hardening and resource/restart settings will be reviewed separately.
 ## Entry 14 / 2026-09-14
 
@@ -293,5 +278,5 @@ Do not fabricate a failed attempt just to fill the template. Record actual attem
 * Root cause: The Compose configuration lacked explicit production-style resilience controls for restart behavior, health-gated startup ordering, and application resource consumption.
 * Fix: Added health-based `depends_on` conditions so the Flask applications wait for healthy PostgreSQL and Redis services and NGINX waits for healthy Flask backends. Changed long-running services to `restart: unless-stopped`. Added a 256 MiB memory limit and 0.50 CPU limit to each Flask application through the shared `x-app` definition. Infrastructure services were intentionally left without arbitrary resource caps because an idle usage snapshot is insufficient for determining safe database, cache, or proxy limits.
 * Retest evidence: `docker compose config -q` completed successfully. Recreated application containers reported healthy dependencies before starting. `docker inspect` confirmed each Flask container has `memory=268435456` and `nano_cpus=500000000`. NGINX, PostgreSQL, and Redis each reported `restart=unless-stopped` after recreation. `/ready` returned HTTP `200 OK` with both dependencies ready. PostgreSQL record ID `3` remained present after recreation, and the Redis counter continued from `2` to `3`, confirming persistence remained intact. Final `docker compose ps` showed both Flask containers healthy, PostgreSQL and Redis healthy, and only NGINX publishing `127.0.0.1:8080->80/tcp`.
-* Related commit: Pending.
+* Related commit: `2876b59 fix: improve container reliability controls`
 * Remaining uncertainty: The selected Flask limits are appropriate for the assessment workload but are not a substitute for production load testing. Infrastructure resource limits should be based on measured workload requirements rather than idle usage alone.
